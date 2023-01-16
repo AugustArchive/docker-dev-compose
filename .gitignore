@@ -538,6 +538,7 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 .data
+.env
 config/kibana/.*
 config/elasticsearch/*.keystore
 config/elasticsearch/users

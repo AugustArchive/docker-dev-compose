@@ -1,0 +1,176 @@
+x-healthy-policy: &health_policy
+  condition: service_healthy
+x-healthcheck-defaults: &healthcheck_defaults
+  interval: 30s
+  timeout: 60s
+  retries: 10
+  start_period: 10s
+x-container-defaults: &defaults
+  restart: always
+  networks:
+    - fluff
+version: "3.8"
+services:
+  redis:
+    <<: *defaults
+    container_name: redis
+    image: bitnami/redis:7.0.7
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${PASSWORD}
+    volumes:
+      - ./.data/redis:/bitnami/redis
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: ["CMD", "redis-cli", "--pass", "${PASSWORD}", "PING"]
+  postgresql:
+    <<: *defaults
+    container_name: postgres
+    image: bitnami/postgresql:14.5.0
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRESQL_LOG_TIMEZONE=America/Phoenix
+      - POSTGRESQL_TIMEZONE=America/Phoenix
+      - POSTGRESQL_PASSWORD=${PASSWORD}
+      - POSTGRESQL_USERNAME=${USERNAME}
+    volumes:
+      - ./.data/postgres:/bitnami/postgresql
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: ["CMD", "pg_isready", "-U", "${USERNAME}"]
+  clickhouse:
+    <<: *defaults
+    container_name: clickhouse
+    image: clickhouse/clickhouse-server:22.3.17.13-alpine
+    ports:
+      # http interface
+      - "8123:8123"
+      # tcp interface
+      - "9000:9000"
+    volumes:
+      - ./.data/clickhouse/logs:/var/log/clickhouse-server
+      - ./.data/clickhouse/data:/var/lib/clickhouse
+      - ./config/clickhouse/server.xml:/etc/clickhouse-server/config.d/noel.xml
+      - ./config/clickhouse/users.xml:/etc/clickhouse-server/users.d/noel.xml
+    environment:
+      - CLICKHOUSE_PASSWORD=${PASSWORD}
+      - CLICKHOUSE_USER=${USERNAME}
+    cap_add:
+      - SYS_NICE
+      - NET_ADMIN
+      - IPC_LOCK
+    ulimits:
+      memlock:
+        hard: 262144
+        soft: 262144
+  elasticsearch:
+    <<: *defaults
+    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.6.0
+    ports:
+      - "9200:9200"
+    volumes:
+      - ./.data/elasticsearch:/usr/share/elasticsearch/data
+      - type: bind
+        source: ./config/elasticsearch
+        target: /usr/share/elasticsearch/config
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx4096m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: ["CMD", "curl", "-fsu", "${USERNAME}:${PASSWORD}", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s"]
+  kibana:
+    <<: *defaults
+    container_name: kibana
+    image: docker.elastic.co/kibana/kibana:8.6.0
+    ports:
+      - "5601:5601"
+    volumes:
+      - ./config/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml
+    environment:
+      - KIBANA_REPORTING_ENCRYPTION_KEY=${KIBANA_REPORTING_ENCRYPTION_KEY}
+      - KIBANA_SECURITY_ENCRYPTION_KEY=${KIBANA_SECURITY_ENCRYPTION_KEY}
+      - KIBANA_ENCRYPTION_KEY=${KIBANA_ENCRYPTION_KEY}
+      - KIBANA_SERVICE_TOKEN=${KIBANA_SERVICE_TOKEN}
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        <<: *health_policy
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: ["CMD", "curl", "-fsu", "${USERNAME}:${PASSWORD}", "http://localhost:5601/api/status"]
+  logstash:
+    <<: *defaults
+    container_name: logstash
+    image: docker.elastic.co/logstash/logstash:8.6.0
+    ports:
+      - "9600:9600"
+      - "4040:4040"
+    volumes:
+      - ./config/logstash/pipeline.conf:/usr/share/logstash/pipeline/pipeline.conf
+      - ./config/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml
+    environment:
+      - ELASTICSEARCH_USERNAME=${USERNAME}
+      - ELASTICSEARCH_PASSWORD=${PASSWORD}
+      - LOGSTASH_USERNAME=${USERNAME}
+      - LOGSTASH_PASSWORD=${PASSWORD}
+    depends_on:
+      elasticsearch:
+        <<: *health_policy
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: ["CMD", "curl", "-fsu", "${USERNAME}:${PASSWORD}", "http://localhost:9600?wait_for_status=green&timeout=1s"]
+  fleet-server:
+    <<: *defaults
+    container_name: fleet-server
+    image: docker.elastic.co/beats/elastic-agent:8.6.0
+    group_add: ["971"]
+    ports:
+      - "8220:8220"
+    environment:
+      - FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - FLEET_SERVER_SERVICE_TOKEN=${FLEET_SERVER_SERVICE_TOKEN}
+      - ELASTICSEARCH_USERNAME=${USERNAME}
+      - ELASTICSEARCH_PASSWORD=${PASSWORD}
+      - FLEET_SERVER_ENABLE=true
+      - KIBANA_FLEET_SETUP=1
+      - KIBANA_HOST=http://kibana:5601
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      <<: *healthcheck_defaults
+
+      # insecure because i dont feel like doing certificates
+      test: ["CMD", "curl", "--insecure", "-fsu", "${USERNAME}:${PASSWORD}", "https://localhost:8220/api/status"]
+    depends_on:
+      elasticsearch:
+        <<: *health_policy
+      kibana:
+        <<: *health_policy
+  elastic-agent:
+    <<: *defaults
+    container_name: elastic-agent
+    image: docker.elastic.co/beats/elastic-agent:8.6.0
+    ports:
+      # APM Server integration
+      - "8200:8200"
+    environment:
+      - FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - FLEET_SERVER_SERVICE_TOKEN=${FLEET_SERVER_SERVICE_TOKEN}
+      - FLEET_ENROLLMENT_TOKEN=${AGENT_ENROLLMENT_TOKEN}
+      - ELASTICSEARCH_USERNAME=${USERNAME}
+      - ELASTICSEARCH_PASSWORD=${PASSWORD}
+      - ELASTIC_AGENT_TAGS=dev,linux,amd64
+      - FLEET_INSECURE=1
+      - KIBANA_HOST=http://kibana:5601
+      - FLEET_URL=http://fleet-server:8220
+    depends_on:
+      fleet-server:
+        <<: *health_policy
+networks:
+  fluff:
+    external: true
+    driver: bridge
