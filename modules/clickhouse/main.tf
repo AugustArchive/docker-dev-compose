@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     docker = {
-      version = "2.22.0"
+      version = "3.0.1"
       source  = "kreuzwerker/docker"
     }
   }
@@ -13,7 +13,7 @@ locals {
 
 resource "docker_image" "clickhouse" {
   keep_locally = true
-  name         = "clickhouse/clickhouse-server:22.6.9.11-alpine"
+  name         = "clickhouse/clickhouse-server:22.3.17.13-alpine"
 }
 
 resource "docker_container" "clickhouse" {
@@ -71,6 +71,6 @@ resource "docker_container" "clickhouse" {
   ]
 
   restart = "always"
-  image   = docker_image.clickhouse.latest
+  image   = docker_image.clickhouse.repo_digest
   name    = "clickhouse"
 }

@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     docker = {
-      version = "2.22.0"
+      version = "3.0.1"
       source  = "kreuzwerker/docker"
     }
   }
@@ -13,7 +13,7 @@ locals {
 
 resource "docker_image" "redis" {
   keep_locally = true
-  name         = "bitnami/redis:7.0.4"
+  name         = "bitnami/redis:7.0.7"
 }
 
 resource "docker_container" "redis" {
@@ -37,6 +37,6 @@ resource "docker_container" "redis" {
   ]
 
   restart = "always"
-  image   = docker_image.redis.latest
+  image   = docker_image.redis.repo_digest
   name    = "redis"
 }

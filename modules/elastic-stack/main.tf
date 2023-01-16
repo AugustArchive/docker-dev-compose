@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     docker = {
-      version = "2.22.0"
+      version = "3.0.1"
       source  = "kreuzwerker/docker"
     }
   }
@@ -13,22 +13,22 @@ locals {
 
 resource "docker_image" "elasticsearch" {
   keep_locally = true
-  name         = "docker.elastic.co/elasticsearch/elasticsearch:8.4.3"
+  name         = "docker.elastic.co/elasticsearch/elasticsearch:8.6.0"
 }
 
 resource "docker_image" "kibana" {
   keep_locally = true
-  name         = "docker.elastic.co/kibana/kibana:8.4.3"
+  name         = "docker.elastic.co/kibana/kibana:8.6.0"
 }
 
 resource "docker_image" "logstash" {
   keep_locally = true
-  name         = "docker.elastic.co/logstash/logstash:8.4.3"
+  name         = "docker.elastic.co/logstash/logstash:8.6.0"
 }
 
 resource "docker_image" "elastic_agent" {
   keep_locally = true
-  name         = "docker.elastic.co/beats/elastic-agent:8.4.3"
+  name         = "docker.elastic.co/beats/elastic-agent:8.6.0"
 }
 
 resource "docker_container" "elasticsearch" {
@@ -58,8 +58,16 @@ resource "docker_container" "elasticsearch" {
     "ES_JAVA_OPTS=-Xms1024m -Xmx4096m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
   ]
 
+  healthcheck {
+    test         = ["CMD", "curl -fu ${local.data["elasticsearch-username"]}:${local.data["elasticsearch-password"]} http://localhost:9200"]
+    retries      = 1
+    start_period = "20s"
+    interval     = "30s"
+    timeout      = "1m"
+  }
+
   restart = "always"
-  image   = docker_image.elasticsearch.latest
+  image   = docker_image.elasticsearch.repo_digest
   name    = "elasticsearch"
 }
 
@@ -92,7 +100,7 @@ resource "docker_container" "kibana" {
   ]
 
   restart = "always"
-  image   = docker_image.kibana.latest
+  image   = docker_image.kibana.repo_digest
   name    = "kibana"
 }
 
@@ -135,61 +143,61 @@ resource "docker_container" "logstash" {
   ]
 
   restart = "always"
-  image   = docker_image.logstash.latest
+  image   = docker_image.logstash.repo_digest
   name    = "logstash"
 }
 
-resource "docker_container" "fleet_server" {
-  networks_advanced {
-    name = var.docker_network
-  }
+# resource "docker_container" "fleet_server" {
+#   networks_advanced {
+#     name = var.docker_network
+#   }
 
-  ports {
-    external = 8220
-    internal = 8220
-    protocol = "tcp"
-  }
+#   ports {
+#     external = 8220
+#     internal = 8220
+#     protocol = "tcp"
+#   }
 
-  env = [
-    "FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200",
-    "FLEET_SERVER_SERVICE_TOKEN=${local.data["fleet-server-service-token"]}",
-    "FLEET_SERVER_ENABLE=true",
-    "KIBANA_FLEET_SETUP=1",
-    "KIBANA_HOST=http://kibana:5601"
-  ]
+#   env = [
+#     "FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200",
+#     "FLEET_SERVER_SERVICE_TOKEN=${local.data["fleet-server-service-token"]}",
+#     "FLEET_SERVER_ENABLE=true",
+#     "KIBANA_FLEET_SETUP=1",
+#     "KIBANA_HOST=http://kibana:5601"
+#   ]
 
-  restart = "always"
-  image   = docker_image.elastic_agent.latest
-  name    = "fleet_server"
-}
+#   restart = "always"
+#   image   = docker_image.elastic_agent.latest
+#   name    = "fleet_server"
+# }
 
-resource "docker_container" "elastic_agent_1" {
-  networks_advanced {
-    name = var.docker_network
-  }
+# resource "docker_container" "elastic_agent_1" {
+#   networks_advanced {
+#     name = var.docker_network
+#   }
 
-  # Each Elastic Agent runs APM server, so this is required to be used!
-  ports {
-    external = 8200
-    internal = 8200
-    protocol = "tcp"
-  }
+#   # Each Elastic Agent runs APM server, so this is required to be used!
+#   ports {
+#     external = 8200
+#     internal = 8200
+#     protocol = "tcp"
+#   }
 
-  env = [
-    "FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200",
-    "FLEET_SERVER_SERVICE_TOKEN=${local.data["fleet-server-service-token"]}",
-    "FLEET_ENROLLMENT_TOKEN=${local.data["elastic-agent-enrollment-token"]}",
-    "FLEET_INSECURE=1",
-    "FLEET_ENROLL=1",
-    "KIBANA_HOST=http://kibana:5601",
-    "FLEET_URL=https://fleet_server:8220",
-  ]
+#   env = [
+#     "FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200",
+#     "FLEET_SERVER_SERVICE_TOKEN=${local.data["fleet-server-service-token"]}",
+#     "FLEET_ENROLLMENT_TOKEN=${local.data["elastic-agent-enrollment-token"]}",
+#     "FLEET_INSECURE=1",
+#     "FLEET_ENROLL=1",
+#     "KIBANA_HOST=http://kibana:5601",
+#     "FLEET_URL=https://fleet_server:8220",
+#   ]
 
-  depends_on = [
-    docker_container.fleet_server
-  ]
+#   depends_on = [
+#     docker_container.fleet_server
+#   ]
 
-  restart = "always"
-  image   = docker_image.elastic_agent.latest
-  name    = "elastic_agent_1"
-}
+#   restart = "always"
+#   image   = docker_image.elastic_agent.latest
+#   name    = "elastic_agent_1"
+# }

@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     docker = {
-      version = "2.22.0"
+      version = "3.0.1"
       source  = "kreuzwerker/docker"
     }
   }
@@ -40,6 +40,6 @@ resource "docker_container" "postgres" {
   ]
 
   restart = "always"
-  image   = docker_image.postgres.latest
+  image   = docker_image.postgres.repo_digest
   name    = "postgres"
 }
